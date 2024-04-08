@@ -60,6 +60,7 @@ Here's why:
 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 ## Attributes:
    * worktree: the work tree is the path where the files that are meant to be in version control are
    * gitdir: the git directory is the path where git stores its own data. Usually is a child directory of the work tree, called .git
