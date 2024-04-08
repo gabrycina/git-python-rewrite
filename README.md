@@ -56,6 +56,11 @@ Here's why:
 * Is fun
 * To finally get it
 
+Attributes:
+   * worktree: the work tree is the path where the files that are meant to be in version control are
+   * gitdir: the git directory is the path where git stores its own data. Usually is a child directory of the work tree, called .git
+   * conf: is an instance of the class ConfigParser, from the external module configparser, used to read and write INI configuration files
+  
 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -133,3 +138,4 @@ A few of helpful link
 
 [Python]: https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54
 [Python-url]: https://www.python.org/
+
