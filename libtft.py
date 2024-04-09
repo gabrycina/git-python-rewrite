@@ -139,3 +139,34 @@ def repo_create(path):
         config.write(f)
 
     return repo
+
+def take_parent_dir(path):
+    for i in range(len(path) -1, -1, -1):
+        if path[i] == "/":
+            break
+
+    if i == 0:
+        if path == "/":
+            return None
+        # when we have "/*"
+        return "/"
+    
+    return path[:i]
+
+def repo_find(path = ".", force=True):
+    if path == ".":
+        path = os.path.realpath(path)
+    
+    if os.path.isdir(path + "/.git"):
+        return GitRepository(path)
+    
+    parent = take_parent_dir(path)
+
+    if parent:
+        # parent exists
+        return repo_find(parent, force)
+
+    if force:
+        raise Exception("No git directory.")
+    
+    return None
