@@ -132,10 +132,28 @@ def repo_create(path):
 
     # .git/HEAD
     with open(repo_file(repo, "HEAD"), "w") as f:
-        f.write("ref: refs/head/master\n")
+        f.write("ref: refs/heads/master\n")
 
     with open(repo_file(repo, "config"), "w") as f:
         config = repo_default_config()
         config.write(f)
 
     return repo
+
+class GitObject (object):
+
+    def __init__(self, data=None):
+        if data != None:
+            self.deserialize(data)
+        else:
+            self.init()
+
+    def serialize(self, repo):
+        raise Exception("Unimplemented!")
+    
+    def deserialize(self, data):
+        raise Exception("Unimplemented!")
+    
+    def init(self):
+        pass
+
