@@ -68,6 +68,12 @@ Here's why:
    - gitdir: the git directory is the path where git stores its own data. Usually is a child directory of the work tree, called .git
    - conf: is an instance of the class ConfigParser, from the external module configparser, used to read and write INI configuration files
 
+### GitObject
+1. **Description:** base class that abstracts the common features of different object types (e.g., blob, commit, tag or tree)
+2. **Methods:**
+   - init: will be used by the derived class to create a new empty object if needed (optional)
+   - deserialize: will be used by the derived class to convert the data into an object (mandatory)
+   - serialize: will be used by the derived class to convert the object into a meaningful representation (mandatory)
   
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -98,6 +104,13 @@ Here's why:
 ## Usage
 
 Use this space to show useful examples of how a project can be used. Additional screenshots, code examples and demos work well in this space. You may also link to more resources.
+
+### Init Command
+To initialize a new empty TFT repository, use the following command:
+```bash
+tft init [path]
+```
+where [path] is the optional path where the repository will be created. If not provided, the repository will be created in the current directory.
 
 _For more examples, please refer to the [Documentation](https://wyag.thb.lt/)_
 
