@@ -64,8 +64,26 @@ class GitRepository(object):
             vers = int(self.conf.get("core", "repositoryformatversion"))
             if vers != 0:
                 raise Exception("Unsupported repositoryformatversion %s" % vers)
-        
+                
+                
+class GitObject (object):
 
+    def __init__(self, data=None):
+        if data != None:
+            self.deserialize(data)
+        else:
+            self.init()
+
+    def serialize(self, repo):
+        raise Exception("Unimplemented!")
+    
+    def deserialize(self, data):
+        raise Exception("Unimplemented!")
+    
+    def init(self):
+        pass
+
+      
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
     return os.path.join(repo.gitdir, *path)
@@ -136,14 +154,14 @@ def repo_create(path):
 
     # .git/HEAD
     with open(repo_file(repo, "HEAD"), "w") as f:
-        f.write("ref: refs/head/master\n")
+        f.write("ref: refs/heads/master\n")
 
     with open(repo_file(repo, "config"), "w") as f:
         config = repo_default_config()
         config.write(f)
 
     return repo
-
+  
 #Bride functions
 def cmd_init(args):
     """Bridge function to initialize a new repository."""
