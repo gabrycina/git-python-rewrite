@@ -68,6 +68,12 @@ Here's why:
    - gitdir: the git directory is the path where git stores its own data. Usually is a child directory of the work tree, called .git
    - conf: is an instance of the class ConfigParser, from the external module configparser, used to read and write INI configuration files
 
+### GitObject
+1. **Description:** base class that abstracts the common features of different object types (e.g., blob, commit, tag or tree)
+2. **Methods:**
+   - init: will be used by the derived class to create a new empty object if needed (optional)
+   - deserialize: will be used by the derived class to convert the data into an object (mandatory)
+   - serialize: will be used by the derived class to convert the object into a meaningful representation (mandatory)
   
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
