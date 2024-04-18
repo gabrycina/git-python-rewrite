@@ -14,6 +14,10 @@ import zlib
 argparser = argparse.ArgumentParser(description="The stupidest version control")
 argsubparsers = argparser.add_subparsers(title="Commands", dest="command")
 argsubparsers.required = True
+
+#subparser for init
+argsp = argsubparsers.add_parser("init", help="Initialize a new empty tft repository.")
+argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Where to create the repository.")
  
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
@@ -139,3 +143,8 @@ def repo_create(path):
         config.write(f)
 
     return repo
+
+#Bride functions
+def cmd_init(args):
+    """Bridge function to initialize a new repository."""
+    repo_create(args.path)
