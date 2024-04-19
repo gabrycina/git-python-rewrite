@@ -163,6 +163,10 @@ def repo_create(path):
 
     return repo
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 766439907eef2f9e3cadc4807f9781df2b42d8c0
 def repo_find(path=".", required=True):
     """"
     Finds the root of the current repository.
@@ -187,7 +191,11 @@ def repo_find(path=".", required=True):
 
     #otherwise we'll do this again with the parent directory
     return repo_find(parent, required)
+<<<<<<< HEAD
   
+=======
+
+>>>>>>> 766439907eef2f9e3cadc4807f9781df2b42d8c0
 
 def object_read(repo, sha):
 
