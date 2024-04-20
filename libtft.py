@@ -83,6 +83,17 @@ class GitObject (object):
     def init(self):
         pass
 
+class GitBlob(GitObject):
+    # Blob format type
+    fmt = b'blob'
+
+    def serialize(self):
+        """Returns the blob data."""
+        return self.blobdata
+
+    def deserialize(self, data):
+        """Stores the data in the blob."""
+        self.blobdata = data
       
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
