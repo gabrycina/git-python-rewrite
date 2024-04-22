@@ -23,7 +23,14 @@ argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Wh
 argsp = argsubparsers.add_parser("cat-file", help="Display content of repository objects")
 argsp.add_argument("type", metavar="type", choices=["blob", "commit", "tag", "tree"], help="Specify the type")
 argsp.add_argument("object", metavar="object", help="The object to display (hash-name)")
- 
+
+#subparser for hash-object
+argsp = argsubparsers.add_parser("hash-object", help="Compute object ID and optionally creates a blob from a file")
+argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit", "tag", "tree"], default="blob", help="Specify the type")
+argsp.add_argument("-w", dest="write", action="store_true", help="Actually write the object into the database")
+argsp.add_argument("path", help="Read object from <file>")
+
+
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
     match args.command:
@@ -208,6 +215,20 @@ def cat_file(repo, obj, fmt=None):
 def object_find(repo, name, fmt=None, follow=True):
     """Just temporary, will implement this fully soon"""
     return name
+
+def object_hash(fd, fmt, repo=None):
+    """Hash object, writing it to repo if provided."""
+    data = fd.read()
+
+    # Choose constructor according to fmt argument
+    match fmt:
+        case b'commit' : obj=GitCommit(data)
+        case b'tree'   : obj=GitTree(data)
+        case b'tag'    : obj=GitTag(data)
+        case b'blob'   : obj=GitBlob(data)
+        case _: raise Exception("Unknown type %s!" % fmt)
+
+    return object_write(obj, repo)
       
      
 #Bride functions
@@ -219,3 +240,14 @@ def cmd_cat_file(args):
     """Bridge function to display the content of an object"""
     repo = repo_find()
     cat_file(repo, args.object, fmt=args.type.encode())
+
+def cmd_hash_object(args):
+    """Bridge function to compute the hash-name of object and optionally create the blob"""
+    if args.write:
+        repo = repo_find()
+    else:
+        repo = None
+
+    with open(args.path, "rb") as fd:
+        sha = object_hash(fd, args.type.encode(), repo)
+        print(sha)
