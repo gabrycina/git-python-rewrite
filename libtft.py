@@ -19,10 +19,6 @@ argsubparsers.required = True
 argsp = argsubparsers.add_parser("init", help="Initialize a new empty tft repository.")
 argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Where to create the repository.")
 
-#subparser for cat-file
-argsp = argsubparsers.add_parser("cat-file", help="Display content of repository objects")
-argsp.add_argument("type", metavar="type", choices=["blob", "commit", "tag", "tree"], help="Specify the type")
-argsp.add_argument("object", metavar="object", help="The object to display (hash-name)")
 
 #subparser for hash-object
 argsp = argsubparsers.add_parser("hash-object", help="Compute object ID and optionally creates a blob from a file")
