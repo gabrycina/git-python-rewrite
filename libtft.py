@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import zlib
+from pathlib import Path
 
 argparser = argparse.ArgumentParser(description="The stupidest version control")
 argsubparsers = argparser.add_subparsers(title="Commands", dest="command")
@@ -18,7 +19,15 @@ argsubparsers.required = True
 #subparser for init
 argsp = argsubparsers.add_parser("init", help="Initialize a new empty tft repository.")
 argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Where to create the repository.")
- 
+
+
+#subparser for hash-object
+argsp = argsubparsers.add_parser("hash-object", help="Compute object ID and optionally creates a blob from a file")
+argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit", "tag", "tree"], default="blob", help="Specify the type")
+argsp.add_argument("-w", dest="write", action="store_true", help="Actually write the object into the database")
+argsp.add_argument("path", help="Read object from <file>")
+
+
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
     match args.command:
@@ -82,7 +91,7 @@ class GitObject (object):
     
     def init(self):
         pass
-
+      
 
 class GitCommit(GitObject):
     # Specify the object format as 'commit'
@@ -100,9 +109,20 @@ class GitCommit(GitObject):
         """Serialize the commit's key-value list map (KVL) back into bytes."""
         return kvlm_serialize(self.kvlm)
 
+      
+class GitBlob(GitObject):
+    # Blob format type
+    fmt = b'blob'
 
+    def serialize(self):
+        """Returns the blob data."""
+        return self.blobdata
 
-
+    def deserialize(self, data):
+        """Stores the data in the blob."""
+        self.blobdata = data
+      
+      
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
     return os.path.join(repo.gitdir, *path)
@@ -180,8 +200,33 @@ def repo_create(path):
         config.write(f)
 
     return repo
-  
 
+def repo_find(path=".", required=True):
+    """"
+    Finds the root of the current repository.
+    """
+    #gets the real path resolving symlinks
+    path = Path(path).resolve()
+
+    #check if the path contains the .git directory
+    path_to_check = path.joinpath(".git")
+    if path_to_check.is_dir():
+        return GitObject(path)
+
+    #if it doesn't try to get the parent directory of path
+    parent = path.joinpath("..").resolve()
+
+    #if parent directory corresponds to the path it means we've reached the base directory. Git repository isn't found
+    if parent == path:
+        if required:
+            raise Exception("No tft Repository found.")
+        else:
+            return None
+
+    #otherwise we'll do this again with the parent directory
+    return repo_find(parent, required)
+
+  
 def object_read(repo, sha):
 
     #read file .git/objects where first two are the directory name, the rest as the file name 
@@ -214,9 +259,124 @@ def object_read(repo, sha):
 
         # Construct and return an instance of the corresponding Git object type
         return c(raw[y+1:])
+
+def object_hash(fd, fmt, repo=None):
+    """Hash object, writing it to repo if provided."""
+    data = fd.read()
+
+    # Choose constructor according to fmt argument
+    match fmt:
+        case b'commit' : obj=GitCommit(data)
+        case b'tree'   : obj=GitTree(data)
+        case b'tag'    : obj=GitTag(data)
+        case b'blob'   : obj=GitBlob(data)
+        case _: raise Exception("Unknown type %s!" % fmt)
+
+    return object_write(obj, repo)
       
+def object_write(obj, repo=None):
+    # Serialize object data
+    data = obj.serialize()
+    # Add header to serialized data
+    result = obj.fmt + b' ' + str(len(data)).encode() + b'\x00' + data
+    # Compute hash
+    sha = hashlib.sha1(result).hexdigest()
+
+    if repo:
+        # Compute path
+        path=repo_file(repo, "objects", sha[0:2], sha[2:], mkdir=True)
+
+        #Extra check before writing
+        if not os.path.exists(path):
+            with open(path, 'wb') as f:
+                # Compress and write
+                f.write(zlib.compress(result))
+    return sha
+ 
+def object_find(repo, name, fmt=None, follow=True):
+    """Just temporary, will implement this fully soon"""
+    return name
+  
+  
+def kvlm_parse(raw, start=0, dct=None):
+    # dct initialization
+    if not dct:
+        dct = collections.OrderedDict()
+
+    # Find the next space and the next newline
+    spc = raw.find(b' ', start)
+    nl = raw.find(b'\n', start)
+
+    # BASE CASE : newline appears before a space or there is no space
+    if (spc < 0) or (nl < spc):
+        assert nl == start
+        dct[None] = raw[start+1:]
+        return dct
+
+    # RECURSIVE CASE : we read a key-value pair and then recurse for the next   
+    key = raw[start:spc]
+
+    # Find the end of the value
+    end = start
+    while True:
+        end = raw.find(b'\n', end+1)
+        if raw[end+1] != ord(' '): 
+            break
+
+    # Grab the value and drop the leading space on continuation lines
+    value = raw[spc+1:end].replace(b'\n ', b'\n')
+
+    # Don't overwrite existing data contents
+    if key in dct:
+        if type(dct[key]) == list:
+            dct[key].append(value)
+        else:
+            dct[key] = [ dct[key], value ]
+    else:
+        dct[key]=value
+
+    # Recursive call to parse the rest of the data
+    return kvlm_parse(raw, start=end+1, dct=dct)
+
+
+def kvlm_serialize(kvlm):
+    res = b''
+
+    # Output fields
+    for key in kvlm.keys():
+        # Skip the message itself
+        if key == None: continue
+
+        val = kvlm[key]
+        # Normalize to a list
+        if type(val) != list:
+            val = [ val ]
+
+        # Serialize each value
+        for v in val:
+            res += key + b' ' + (v.replace(b'\n', b'\n ')) + b'\n'
+
+    # Append message
+    res += b'\n' + kvlm[None] + b'\n'
+
+    return res
+  
+def cat_file(repo, obj, fmt=None):
+    obj = object_read(repo, object_find(repo, obj, fmt=fmt))
+    sys.stdout.buffer.write(obj.serialize())
      
 #Bride functions
 def cmd_init(args):
     """Bridge function to initialize a new repository."""
     repo_create(args.path)
+
+def cmd_hash_object(args):
+    """Bridge function to compute the hash-name of object and optionally create the blob"""
+    if args.write:
+        repo = repo_find()
+    else:
+        repo = None
+
+    with open(args.path, "rb") as fd:
+        sha = object_hash(fd, args.type.encode(), repo)
+        print(sha)
