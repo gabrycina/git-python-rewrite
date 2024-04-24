@@ -202,6 +202,14 @@ def cmd_init(args):
     """Bridge function to initialize a new repository."""
     repo_create(args.path)
 
+
+
+argsp = argsubparsers.add_parser("log", help="Display history of a given commit.")
+argsp.add_argument("commit",
+                   default="HEAD",
+                   nargs="?",
+                   help="Commit to start at.")
+
 def cmd_log(args):
     repo = repo_find()
 
