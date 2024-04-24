@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import zlib
+from pathlib import Path
 
 argparser = argparse.ArgumentParser(description="The stupidest version control")
 argsubparsers = argparser.add_subparsers(title="Commands", dest="command")
@@ -172,7 +173,31 @@ def repo_create(path):
         config.write(f)
 
     return repo
-  
+
+def repo_find(path=".", required=True):
+    """"
+    Finds the root of the current repository.
+    """
+    #gets the real path resolving symlinks
+    path = Path(path).resolve()
+
+    #check if the path contains the .git directory
+    path_to_check = path.joinpath(".git")
+    if path_to_check.is_dir():
+        return GitObject(path)
+
+    #if it doesn't try to get the parent directory of path
+    parent = path.joinpath("..").resolve()
+
+    #if parent directory corresponds to the path it means we've reached the base directory. Git repository isn't found
+    if parent == path:
+        if required:
+            raise Exception("No tft Repository found.")
+        else:
+            return None
+
+    #otherwise we'll do this again with the parent directory
+    return repo_find(parent, required)
 
 def object_read(repo, sha):
 
