@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import zlib
+from pathlib import Path
 
 argparser = argparse.ArgumentParser(description="The stupidest version control")
 argsubparsers = argparser.add_subparsers(title="Commands", dest="command")
@@ -88,6 +89,17 @@ class GitObject (object):
     def init(self):
         pass
 
+class GitBlob(GitObject):
+    # Blob format type
+    fmt = b'blob'
+
+    def serialize(self):
+        """Returns the blob data."""
+        return self.blobdata
+
+    def deserialize(self, data):
+        """Stores the data in the blob."""
+        self.blobdata = data
       
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
@@ -166,8 +178,33 @@ def repo_create(path):
         config.write(f)
 
     return repo
-  
 
+def repo_find(path=".", required=True):
+    """"
+    Finds the root of the current repository.
+    """
+    #gets the real path resolving symlinks
+    path = Path(path).resolve()
+
+    #check if the path contains the .git directory
+    path_to_check = path.joinpath(".git")
+    if path_to_check.is_dir():
+        return GitObject(path)
+
+    #if it doesn't try to get the parent directory of path
+    parent = path.joinpath("..").resolve()
+
+    #if parent directory corresponds to the path it means we've reached the base directory. Git repository isn't found
+    if parent == path:
+        if required:
+            raise Exception("No tft Repository found.")
+        else:
+            return None
+
+    #otherwise we'll do this again with the parent directory
+    return repo_find(parent, required)
+
+  
 def object_read(repo, sha):
 
     #read file .git/objects where first two are the directory name, the rest as the file name 
@@ -201,14 +238,33 @@ def object_read(repo, sha):
         # Construct and return an instance of the corresponding Git object type
         return c(raw[y+1:])
 
-def cat_file(repo, obj, fmt=None):
-    obj = object_read(repo, object_find(repo, obj, fmt=fmt))
-    sys.stdout.buffer.write(obj.serialize())
+def object_write(obj, repo=None):
+    # Serialize object data
+    data = obj.serialize()
+    # Add header to serialized data
+    result = obj.fmt + b' ' + str(len(data)).encode() + b'\x00' + data
+    # Compute hash
+    sha = hashlib.sha1(result).hexdigest()
 
+    if repo:
+        # Compute path
+        path=repo_file(repo, "objects", sha[0:2], sha[2:], mkdir=True)
+
+        #Extra check before writing
+        if not os.path.exists(path):
+            with open(path, 'wb') as f:
+                # Compress and write
+                f.write(zlib.compress(result))
+    return sha
+ 
 def object_find(repo, name, fmt=None, follow=True):
     """Just temporary, will implement this fully soon"""
     return name
-      
+  
+  
+def cat_file(repo, obj, fmt=None):
+    obj = object_read(repo, object_find(repo, obj, fmt=fmt))
+    sys.stdout.buffer.write(obj.serialize())
      
 #Bride functions
 def cmd_init(args):
