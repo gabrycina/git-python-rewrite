@@ -195,7 +195,27 @@ def object_read(repo, sha):
 
         # Construct and return an instance of the corresponding Git object type
         return c(raw[y+1:])
-      
+
+
+def object_write(obj, repo=None):
+    # Serialize object data
+    data = obj.serialize()
+    # Add header to serialized data
+    result = obj.fmt + b' ' + str(len(data)).encode() + b'\x00' + data
+    # Compute hash
+    sha = hashlib.sha1(result).hexdigest()
+
+    if repo:
+        # Compute path
+        path=repo_file(repo, "objects", sha[0:2], sha[2:], mkdir=True)
+
+        #Extra check before writing
+        if not os.path.exists(path):
+            with open(path, 'wb') as f:
+                # Compress and write
+                f.write(zlib.compress(result))
+    return sha
+
      
 #Bride functions
 def cmd_init(args):
