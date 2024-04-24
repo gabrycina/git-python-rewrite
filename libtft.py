@@ -204,9 +204,6 @@ def object_read(repo, sha):
         # Construct and return an instance of the corresponding Git object type
         return c(raw[y+1:])
 
-def cat_file(repo, obj, fmt=None):
-    obj = object_read(repo, object_find(repo, obj, fmt=fmt))
-    sys.stdout.buffer.write(obj.serialize())
 
 def object_find(repo, name, fmt=None, follow=True):
     """Just temporary, will implement this fully soon"""
