@@ -91,7 +91,25 @@ class GitObject (object):
     
     def init(self):
         pass
+      
 
+class GitCommit(GitObject):
+    # Specify the object format as 'commit'
+    fmt = b'commit'
+
+    def __init__(self):
+        # Initialize the commit object with an empty key-value list map (KVL)
+        self.kvlm = {}
+
+    def read_data(self, data):
+        """Deserialize the data into a key-value list map (KVL)."""
+        self.kvlm = kvlm_parse(data)
+
+    def write_data(self):
+        """Serialize the commit's key-value list map (KVL) back into bytes."""
+        return kvlm_serialize(self.kvlm)
+
+      
 class GitBlob(GitObject):
     # Blob format type
     fmt = b'blob'
@@ -103,6 +121,7 @@ class GitBlob(GitObject):
     def deserialize(self, data):
         """Stores the data in the blob."""
         self.blobdata = data
+      
       
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
