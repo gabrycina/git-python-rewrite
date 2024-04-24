@@ -279,6 +279,69 @@ def object_find(repo, name, fmt=None, follow=True):
     return name
   
   
+def kvlm_parse(raw, start=0, dct=None):
+    # dct initialization
+    if not dct:
+        dct = collections.OrderedDict()
+
+    # Find the next space and the next newline
+    spc = raw.find(b' ', start)
+    nl = raw.find(b'\n', start)
+
+    # BASE CASE : newline appears before a space or there is no space
+    if (spc < 0) or (nl < spc):
+        assert nl == start
+        dct[None] = raw[start+1:]
+        return dct
+
+    # RECURSIVE CASE : we read a key-value pair and then recurse for the next   
+    key = raw[start:spc]
+
+    # Find the end of the value
+    end = start
+    while True:
+        end = raw.find(b'\n', end+1)
+        if raw[end+1] != ord(' '): 
+            break
+
+    # Grab the value and drop the leading space on continuation lines
+    value = raw[spc+1:end].replace(b'\n ', b'\n')
+
+    # Don't overwrite existing data contents
+    if key in dct:
+        if type(dct[key]) == list:
+            dct[key].append(value)
+        else:
+            dct[key] = [ dct[key], value ]
+    else:
+        dct[key]=value
+
+    # Recursive call to parse the rest of the data
+    return kvlm_parse(raw, start=end+1, dct=dct)
+
+
+def kvlm_serialize(kvlm):
+    res = b''
+
+    # Output fields
+    for key in kvlm.keys():
+        # Skip the message itself
+        if key == None: continue
+
+        val = kvlm[key]
+        # Normalize to a list
+        if type(val) != list:
+            val = [ val ]
+
+        # Serialize each value
+        for v in val:
+            res += key + b' ' + (v.replace(b'\n', b'\n ')) + b'\n'
+
+    # Append message
+    res += b'\n' + kvlm[None] + b'\n'
+
+    return res
+  
 def cat_file(repo, obj, fmt=None):
     obj = object_read(repo, object_find(repo, obj, fmt=fmt))
     sys.stdout.buffer.write(obj.serialize())
@@ -287,7 +350,6 @@ def cat_file(repo, obj, fmt=None):
 def cmd_init(args):
     """Bridge function to initialize a new repository."""
     repo_create(args.path)
-
 
 def cmd_hash_object(args):
     """Bridge function to compute the hash-name of object and optionally create the blob"""
