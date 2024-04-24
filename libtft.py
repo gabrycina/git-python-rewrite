@@ -205,9 +205,6 @@ def object_read(repo, sha):
         return c(raw[y+1:])
 
 
-def object_find(repo, name, fmt=None, follow=True):
-    """Just temporary, will implement this fully soon"""
-    return name
 
 def object_hash(fd, fmt, repo=None):
     """Hash object, writing it to repo if provided."""
