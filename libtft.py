@@ -229,10 +229,6 @@ def cmd_init(args):
     """Bridge function to initialize a new repository."""
     repo_create(args.path)
 
-def cmd_cat_file(args):
-    """Bridge function to display the content of an object"""
-    repo = repo_find()
-    cat_file(repo, args.object, fmt=args.type.encode())
 
 def cmd_hash_object(args):
     """Bridge function to compute the hash-name of object and optionally create the blob"""
