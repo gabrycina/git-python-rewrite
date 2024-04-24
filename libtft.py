@@ -19,6 +19,11 @@ argsubparsers.required = True
 #subparser for init
 argsp = argsubparsers.add_parser("init", help="Initialize a new empty tft repository.")
 argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Where to create the repository.")
+
+#subparser for cat-file
+argsp = argsubparsers.add_parser("cat-file", help="Display content of repository objects")
+argsp.add_argument("type", metavar="type", choices=["blob", "commit", "tag", "tree"], help="Specify the type")
+argsp.add_argument("object", metavar="object", help="The object to display (hash-name)")
  
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
@@ -199,6 +204,7 @@ def repo_find(path=".", required=True):
     #otherwise we'll do this again with the parent directory
     return repo_find(parent, required)
 
+  
 def object_read(repo, sha):
 
     #read file .git/objects where first two are the directory name, the rest as the file name 
@@ -232,7 +238,6 @@ def object_read(repo, sha):
         # Construct and return an instance of the corresponding Git object type
         return c(raw[y+1:])
 
-
 def object_write(obj, repo=None):
     # Serialize object data
     data = obj.serialize()
@@ -251,9 +256,22 @@ def object_write(obj, repo=None):
                 # Compress and write
                 f.write(zlib.compress(result))
     return sha
-
+ 
+def object_find(repo, name, fmt=None, follow=True):
+    """Just temporary, will implement this fully soon"""
+    return name
+  
+  
+def cat_file(repo, obj, fmt=None):
+    obj = object_read(repo, object_find(repo, obj, fmt=fmt))
+    sys.stdout.buffer.write(obj.serialize())
      
 #Bride functions
 def cmd_init(args):
     """Bridge function to initialize a new repository."""
     repo_create(args.path)
+
+def cmd_cat_file(args):
+    """Bridge function to display the content of an object"""
+    repo = repo_find()
+    cat_file(repo, args.object, fmt=args.type.encode())
