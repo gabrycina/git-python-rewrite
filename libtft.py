@@ -27,6 +27,10 @@ argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit",
 argsp.add_argument("-w", dest="write", action="store_true", help="Actually write the object into the database")
 argsp.add_argument("path", help="Read object from <file>")
 
+#subparser for ls-tree
+argsp = argsubparsers.add_parser("ls-tree", help="Pretty-print a tree object")
+argsp.add_argument("-r", dest="recursive", action="store_true", help="Recurse into sub-trees")
+argsp.add_argument("tree", help="A tree-ish object.")
 
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
@@ -413,6 +417,26 @@ def kvlm_serialize(kvlm):
 
     return res
   
+def ls_tree(repo, ref, recursive=None, prefix=""):
+    obj = object_read(repo, object_find(repo, ref, fmt=b'tree'))
+
+    for item in obj.items:
+        type = item.mode[0:1 if item.mode == 5 else 2]
+
+        match type:
+            case '04': type = 'tree'
+            case '10': type = 'blob'
+            case '12': type = 'blob'
+            case '16': type = 'commit'
+            case _: raise Exception("Unknown type %s!" % type)
+
+        if not recursive and type == 'tree': # Leaf
+            print("{0} {1} {2}\t{3}".format(
+                "0" * (6 - len(item.mode)) + item.mode.decode("ascii"), 
+                type, item.sha, os.path.join(prefix, item.path)))
+        else: # Branch
+            ls_tree(repo, item.sha, recursive, os.path.join(prefix, item.path))
+
 def cat_file(repo, obj, fmt=None):
     obj = object_read(repo, object_find(repo, obj, fmt=fmt))
     sys.stdout.buffer.write(obj.serialize())
@@ -432,3 +456,7 @@ def cmd_hash_object(args):
     with open(args.path, "rb") as fd:
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
+
+def cmd_ls_tree(args):
+    repo = repo_find()
+    ls_tree(repo, args.tree, args.recursive)
