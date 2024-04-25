@@ -121,8 +121,67 @@ class GitBlob(GitObject):
     def deserialize(self, data):
         """Stores the data in the blob."""
         self.blobdata = data
-      
-      
+
+class GitTree(GitObject):
+    fmt = b'tree'
+    def serialize(self):
+        return tree_serialize(self)
+
+    def deserialize(self, data):
+        self.items = tree_parse(data)
+    
+    def init(self):
+        self.items = list()
+
+class GitTreeLeaf(object):
+    def __init__(self, mode, path, sha):
+        self.mode = mode
+        self.path = path
+        self.sha = sha
+
+def tree_parse_one(raw, start=0):
+    # Find the first space
+    x = raw.find(b' ', start)
+    assert x - start == 5 or x - start == 6
+    # Read the mode
+    mode = raw[start:x]
+    if len(mode):
+        mode = b' ' + mode
+    # Find the NULL value
+    y = raw.find(b'\x00', x)
+    # Read the path
+    path = raw[x + 1:y]
+
+    # Read the sha
+    sha = format(int.from_bytes(raw[y + 1:], 'big'), '040x')
+    return y + 21, GitTreeLeaf(mode, path.decode('utf-8'), sha)
+
+def tree_parse(raw):
+    pos = 0
+    max = len(raw)
+    ret = list()
+    while pos < max:
+        pos, leaf = tree_parse_one(raw, pos)
+        ret.append(leaf)
+
+    return ret
+
+def tree_serialize(obj):
+    obj.items.sort(key=tree_leaf_sort_key)
+    ret = b''
+    for i in obj.items:
+        ret += i.mode
+        ret += b' '
+        ret += i.path.encode('utf-8')
+        ret += b'\x00'
+        sha = int(i.sha, 16)
+        ret += sha.to_bytes(20, 'big')
+        
+    return ret
+
+def tree_leaf_sort_key(leaf):
+    return leaf.path + ('/' if leaf.path.startswith(b'10') else '')
+
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
     return os.path.join(repo.gitdir, *path)
