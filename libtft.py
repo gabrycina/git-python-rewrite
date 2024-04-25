@@ -27,6 +27,10 @@ argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit",
 argsp.add_argument("-w", dest="write", action="store_true", help="Actually write the object into the database")
 argsp.add_argument("path", help="Read object from <file>")
 
+#subparser for checkout
+argsp = argsubparsers.add_parser("checkout", help="Checkout a commit inside of a directory.")
+argsp.add_argument("commit", help="The commit or tree to checkout.")
+argsp.add_argument("path", help="The EMPTY directory to checkout on.")
 
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
@@ -297,7 +301,19 @@ def object_find(repo, name, fmt=None, follow=True):
     """Just temporary, will implement this fully soon"""
     return name
   
-  
+def tree_checkout(repo, tree, path="."):
+    for item in tree.items:
+        obj = object_read(repo, item.sha)
+        dest = os.path.join(path, item.path)
+
+        if obj.fmt == b'tree':
+            os.mkdir(dest)
+            tree_checkout(repo, obj, path=dest)
+        elif obj.fmt == b'blob':
+            with open(dest, 'wb') as f:
+                f.write(obj.blobdata)
+
+
 def kvlm_parse(raw, start=0, dct=None):
     # dct initialization
     if not dct:
@@ -380,3 +396,22 @@ def cmd_hash_object(args):
     with open(args.path, "rb") as fd:
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
+
+def cmd_checkout(args):
+    """Bridge function to checkout an existing repository."""
+    repo = repo_find(args.path)
+    obj = object_read(repo, object_find(repo, args.commit))
+
+    if obj.type == b'commit':
+        obj = object_read(repo, obj.kvlm[b'tree'].decode("ascii"))
+    
+    if os.path.exists(args.path):
+        if not os.path.isdir(args.path):
+            raise Exception("%s is not a directory!" % args.path)
+        
+        if os.listdir(args.path):
+            raise Exception("%s is not empty!" % args.path)
+    else:
+        os.makedirs(args.path)
+    
+    tree_checkout()
