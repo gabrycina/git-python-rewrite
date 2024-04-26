@@ -121,7 +121,9 @@ class GitBlob(GitObject):
     def deserialize(self, data):
         """Stores the data in the blob."""
         self.blobdata = data
-      
+
+class GitTag(GitCommit):
+    fmt = b'tag'    
       
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
