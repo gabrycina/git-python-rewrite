@@ -27,6 +27,12 @@ argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit",
 argsp.add_argument("-w", dest="write", action="store_true", help="Actually write the object into the database")
 argsp.add_argument("path", help="Read object from <file>")
 
+#subparser for rev-parse
+argsp = argsubparsers.add_parser("rev-parse", help="Parse revision (or other objects) identifiers")
+argsp.add_argument("--wyag-type", metavar="type", dest="type", 
+                   choices=["blob", "commit", "tag", "tree"], 
+                   default=None, help="Specify the expected type")
+argsp.add_argument("name", help="The name to parse")
 
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
@@ -434,3 +440,10 @@ def cmd_hash_object(args):
     with open(args.path, "rb") as fd:
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
+
+def cmd_rev_parse(args):
+    """Bridge function to parse a revision."""
+    fmt = args.type.encode() if args.type else None
+
+    repo = repo_find()
+    print(object_find(repo, args.name, fmt, follow=True))
