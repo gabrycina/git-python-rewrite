@@ -294,10 +294,64 @@ def object_write(obj, repo=None):
     return sha
  
 def object_find(repo, name, fmt=None, follow=True):
-    """Just temporary, will implement this fully soon"""
-    return name
+    sha = object_resolve(repo, name)
+
+    if not sha:
+        raise Exception("No such reference {0}.".format(name))
+
+    if len(sha) > 1:
+        raise Exception("Ambiguous reference {0}: Candidates are:\n - {1}.".format(name,  "\n - ".join(sha)))
+    
+    sha = sha[0]
+
+    if not fmt:
+        return sha
+
+    while True:
+        obj = object_read(repo, sha)
+        if obj.fmt == fmt:
+            return sha
+        if not follow:
+            return None
+        sha = obj.oid
+
+        if obj.fmt == b'tag':
+            sha = obj.kvlm[b'object'].decode("ascii")
+        elif obj.fmt == b'commit' and fmt == b'tree':
+            sha = obj.kvlm[b'tree'].decode("ascii")
+        else:
+            return None
   
+def object_resolve(repo, name):
+    candidates = list()
+    hashRe = re.compile(b'^[0-9A-Fa-f]{4,40}$') # Hex string matcher
   
+    if not name.strip(): # Empty string
+        return None
+    
+    if name == "HEAD": # HEAD case
+        return [ ref_resolve(repo, "HEAD") ]
+
+    if hashRe.match(name):# Short or long hash
+        name = name.lower()
+        prefix = name[0:2]
+        path = repo_dir(repo, "objects", prefix)
+
+        if path:
+            rem = name[2:]
+            for f in os.listdir(path):
+                if f.startswith(rem):
+                    candidates.append(prefix + f)
+
+    as_tag = ref_resolve(repo, "refs/tags/" + name)
+    if as_tag: # Ref case
+        candidates.append(as_tag)
+    
+    as_branch = ref_resolve(repo, "refs/heads/" + name)
+    if as_branch: # Branch case
+        candidates.append(as_branch)
+    return candidates
+
 def kvlm_parse(raw, start=0, dct=None):
     # dct initialization
     if not dct:
