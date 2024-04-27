@@ -32,6 +32,10 @@ argsp = argsubparsers.add_parser("ls-tree", help="Pretty-print a tree object.")
 argsp.add_argument("-r", dest="recursive", action="store_true", help="Recurse into sub-trees")
 argsp.add_argument("tree", help="A tree-ish object.")
 
+#subparser for ls-files
+argsp = argsubparsers.add_parser("ls-files", help = "List all the stage files")
+argsp.add_argument("--verbose", action="store_true", help="Show everything.")
+
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
     match args.command:
@@ -301,7 +305,38 @@ def object_find(repo, name, fmt=None, follow=True):
     """Just temporary, will implement this fully soon"""
     return name
   
-  
+
+def cmd_ls_files(args):
+    repo = repo_find()
+    index = index_read(repo)
+
+    if args.verbose:
+        print("Index file format v{}, containing {} entries.".format(index.version, len(index.entries)))
+    
+    for entry in index.entries:
+        print(entry.name)
+        if args.verbose:
+            print("  {} with perms: {:o}".format(
+            {0b1000: "regular file",
+            0b1010: "symlink",
+            0b1110: "git link"}[entry.mode_type],
+        entry.mode_perms))
+        print("  on blob: {}".format(entry.sha))
+        print("  created: {}.{}, modified: {}.{}".format(
+            datetime.fromtimestamp(entry.ctime[0]),
+            entry.ctime[1], 
+            datetime.fromtimestamp(entry.mtime[0]), 
+            entry.mtime[1]))
+        print("  device: {}, inode: {}".format(entry.dev, entry.ino))
+        print("  user: {} ({})  group: {} ({})".format(
+            pwd.getpwuid(entry.uid).pw_name,
+            entry.uid,
+            grp.getgrgid(entry.gid).gr_name,
+            entry.gid))
+        print("  flags: stage={} assume_valid={}".format(
+        entry.flag_stage,
+        entry.flag_assume_valid))
+
 def kvlm_parse(raw, start=0, dct=None):
     # dct initialization
     if not dct:
