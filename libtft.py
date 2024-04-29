@@ -27,6 +27,8 @@ argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit",
 argsp.add_argument("-w", dest="write", action="store_true", help="Actually write the object into the database")
 argsp.add_argument("path", help="Read object from <file>")
 
+#subparser for status
+argsp = argsubparsers.add_parser("status", help = "Show the working tree status.")
 
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
@@ -360,7 +362,29 @@ def kvlm_serialize(kvlm):
     res += b'\n' + kvlm[None] + b'\n'
 
     return res
-  
+
+def branch_get_active(repo):
+    with open(repo_file(repo, "HEAD"), "rb") as f:
+        head = f.read()
+
+    if head.startswith(b'ref: refs/heads/'):
+        return head[16:-1]
+    return False
+
+def tree_to_dict(repo, ref, prefix=""):
+    ret = dict()
+    tree_sha = object_find(repo, ref, fmt=b'tree')
+    tree = object_read(repo, tree_sha)
+
+    for leaf in tree.items:
+        full_path = os.path.join(prefix, leaf.path)
+        is_subtree = leaf.mode.startswith('04')
+        if is_subtree:
+            ret.update(tree_to_dict(repo, leaf.sha, full_path))
+        else:
+            ret[full_path] = leaf.sha
+    return ret
+
 def cat_file(repo, obj, fmt=None):
     obj = object_read(repo, object_find(repo, obj, fmt=fmt))
     sys.stdout.buffer.write(obj.serialize())
@@ -380,3 +404,71 @@ def cmd_hash_object(args):
     with open(args.path, "rb") as fd:
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
+
+def cmd_status(_):
+    repo = repo_find()
+    index = index_read(repo)
+
+def cmd_status_branch(repo):
+    branch = branch_get_active(repo)
+    if branch:
+        print("On branch: {}".format(branch))
+    else:
+        print("HEAD detached at: {}".format(object_find(repo, "HEAD")))
+
+def cmd_status_head_index(repo, index):
+    print("Changes to be committed: ")
+
+    head = tree_to_dict(repo, "HEAD")
+    for entry in index.entries:
+        if entry.name in head:
+            if head[entry.name] != entry.sha:
+                print("  modified:", entry.name)
+            # Delete the entry in the index if it exists in HEAD
+            del head[entry.name]
+        else:
+            print("  added:", entry.name)
+
+    # Deleted files
+    for entry in head:
+        print("  deleted:", entry)
+
+def cmd_status_index_worktree(repo, index):
+    print("Changes not staged for commit: ")
+
+    ignore = gitignore_read(repo)
+
+    gitdir_prefix = repo.gitdir + os.path.sep
+
+    files = list()
+
+    for (root, _, filenames) in os.walk(repo.worktree, True):
+        if root == repo.gitdir or root.startswith(gitdir_prefix): continue
+        for f in filenames:
+            files.append(os.path.relpath(os.path.join(root, f), repo.worktree))
+
+    for entry in index.entries:
+        full_path = os.path.join(repo.worktree, entry.name)
+
+        if not os.path.exists(full_path):
+            print("  deleted:", entry.name)
+        else:
+            stat = os.stat(full_path)
+
+            ctime_ns = entry.ctime[0] * 10**9 + entry.ctime[1]
+            mtime_ns = entry.mtime[0] * 10**9 + entry.mtime[1]
+
+            if stat.st_ctime_ns != ctime_ns or stat.st_mtime_ns != mtime_ns:
+                with open(full_path, "rb") as f:
+                    sha = object_hash(f, b'blob', None)
+
+                    if entry.sha != sha:
+                        print("  modified:", entry.name)
+        if entry.name in files:
+            files.remove(entry.name)
+
+    print("\nUntracked files: ")
+    for f in files:
+        if check_ignore(ignore, f): continue
+        print(" ", f)
+
