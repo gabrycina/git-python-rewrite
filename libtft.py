@@ -422,3 +422,41 @@ class GitIgnore(object):
     def __init__(self, absolute, scoped):
         self.absolute = absolute
         self.scoped = scoped
+
+def gitignore_read(repo):
+    ret = GitIgnore(absolute=list(), scoped=dict())
+
+    #read local configuration: .git/info/exclude
+    repo_file = os.path.join(repo.gitfir, "info/exclude")
+    if os.path.exists(repo_file):
+        with open(repo_file, "r") as f:
+            ret.absolute.append(gitignore_parse(f.readlines()))
+    
+    #global configuration
+    if "XDG_CONFIG_HOME" in os.environ:
+        config_home = os.environ["XDG_CONFIG_HOME"]
+    else:
+        config_home = os.path.expanduser("~/.config")
+    global_file = os.path.join(config_home,"git/ignore")
+
+    if os.path.exists(global_file):
+        with open(global_file, "r") as f:
+            ret.absolute.append(gitignore_parse(f.readlines()))
+    
+    # .gitignore files in the index
+    index = index_read(repo)
+    for entry in index.entries:
+        if entry.name == ".gitignore" or entry.name.endswitch("/.gitignore"):
+            dir_name = os.path.dirname(entry.name)
+            contents = object_read(repo, entry.sha)
+            lines = contents.blobdata.decode("utf8").splitlines()
+            ret.scoped[dir_name] = gitignore_parse(lines)
+    return ret
+
+#function check match with rules
+def check_ignore1(rules, path):
+    result = None # nothing matched
+    for(pattern, value) in rules:
+        if fnmatch(path, pattern):
+            result = value
+    return result #true or false
