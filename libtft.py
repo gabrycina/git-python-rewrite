@@ -408,6 +408,11 @@ def cmd_hash_object(args):
 def cmd_status(_):
     repo = repo_find()
     index = index_read(repo)
+    
+    cmd_status_branch(repo)
+    cmd_status_head_index(repo, index)
+    print()
+    cmd_status_index_worktree(repo, index)
 
 def cmd_status_branch(repo):
     branch = branch_get_active(repo)
