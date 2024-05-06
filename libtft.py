@@ -380,3 +380,56 @@ def cmd_hash_object(args):
     with open(args.path, "rb") as fd:
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
+
+def index_write(repo, index):
+
+    # refer to "8.2 Parsing the index" for info about the format
+    with open(repo_file(repo, "index"), "wb") as f:
+        
+        # header
+        f.write(b"DIRC")
+        f.write(index.version.to_bytes(4, "big"))
+        f.write(len(index.entries).to_bytes(4, "big"))
+
+        # entries
+        idx = 0;
+        for entry in index.entries:
+            f.write(entry.ctime[0].to_bytes(4, "big"))
+            f.write(entry.ctime[1].to_bytes(4, "big"))
+            f.write(entry.mtime[0].to_bytes(4, "big"))
+            f.write(entry.mtime[1].to_bytes(4, "big"))
+            f.write(entry.dev.to_bytes(4, "big"))
+            f.write(entry.ino.to_bytes(4, "big"))
+
+            mode = (entry.mode_type << 12) | e.mode_perms
+            f.write(mode.to_bytes(4, "big"))
+
+            f.write(entry.uid.to_bytes(4, "big"))
+            f.write(entry.gid.to_bytes(4, "big"))
+
+            f.write(entry.fsize.to_bytes(4, "big"))
+            f.write(int(entry.sha, 16).to_bytes(20, "big"))
+
+            flag_assume_valid = 0x1 << 15 if entry.flag_assume_valid else 0
+            name_bytes = entry.name.encode("utf8")
+            bytes_len = len(name_bytes)
+            if bytes_len >= 0xFFF:
+                name_length = 0xFFF
+            else:
+                name_length = bytes_len
+
+            # We merge back three pieces of data (two flags and the
+            # length of the name) on the same two bytes.
+            f.write((flag_assume_valid | entry.flag_stage | name_length).to_bytes(2, "big"))
+
+            f.write(name_bytes)
+            f.write((0).to_bytes(1, "big"))
+
+            # header length + filename length + final 0x00
+            idx += 62 + len(name_bytes) + 1
+
+            # Add padding if necessary (padded in multiple of 8 bytes)
+            if idx % 8 != 0:
+                pad = 8 - (idx % 8)
+                f.write((0).to_bytes(pad, "big"))
+                idx += pad
