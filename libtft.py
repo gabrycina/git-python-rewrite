@@ -381,55 +381,43 @@ def cmd_hash_object(args):
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
 
-def index_write(repo, index):
+argsp = argsubparsers.add_parser("add", help = "Add files contents to the index.")
+argsp.add_argument("path", nargs="+", help="Files to add")
 
-    # refer to "8.2 Parsing the index" for info about the format
-    with open(repo_file(repo, "index"), "wb") as f:
+def cmd_add(args):
+    repo = repo_find()
+    add(repo, args.path)
+
+def add(repo, paths, delete=True, skip_missing=False):
+    rm(repo, paths, delete=False, skip_missing=True)
+    worktree = repo.worktree + os.sep
+     
+    clean_paths = list()
+    for path in paths:
+        abspath = os.path.abspath(path)
+        if not (abspath.startswith(worktree) and os.path.isfile(abspath)):
+            raise Exception("Not a file, or outside the worktree: {}".format(paths))
+        relpath = os.path.relpath(abspath, repo.worktree)
+        clean_paths.append((abspath,  relpath))
         
-        # header
-        f.write(b"DIRC")
-        f.write(index.version.to_bytes(4, "big"))
-        f.write(len(index.entries).to_bytes(4, "big"))
+        index = index_read(repo)
 
-        # entries
-        idx = 0;
-        for entry in index.entries:
-            f.write(entry.ctime[0].to_bytes(4, "big"))
-            f.write(entry.ctime[1].to_bytes(4, "big"))
-            f.write(entry.mtime[0].to_bytes(4, "big"))
-            f.write(entry.mtime[1].to_bytes(4, "big"))
-            f.write(entry.dev.to_bytes(4, "big"))
-            f.write(entry.ino.to_bytes(4, "big"))
+        for (abspath, relpath) in clean_paths:
+            with open(abspath, "rb") as fd:
+                sha = object_hash(fd, b"blob", repo)
 
-            mode = (entry.mode_type << 12) | e.mode_perms
-            f.write(mode.to_bytes(4, "big"))
+            stat = os.stat(abspath) # to get metadata of files
 
-            f.write(entry.uid.to_bytes(4, "big"))
-            f.write(entry.gid.to_bytes(4, "big"))
+            ctime_s = int(stat.st_ctime)
+            ctime_ns = stat.st_ctime_ns % 10**9
+            mtime_s = int(stat.st_mtime)
+            mtime_ns = stat.st_mtime_ns % 10**9
 
-            f.write(entry.fsize.to_bytes(4, "big"))
-            f.write(int(entry.sha, 16).to_bytes(20, "big"))
+            entry = GitIndexEntry(ctime=(ctime_s, ctime_ns), mtime=(mtime_s, mtime_ns), dev=stat.st_dev, ino=stat.st_ino,
+                                    mode_type=0b1000, mode_perms=0o644, uid=stat.st_uid, gid=stat.st_gid,
+                                    fsize=stat.st_size, sha=sha, flag_assume_valid=False,
+                                    flag_stage=False, name=relpath)
+            index.entries.append(entry)
 
-            flag_assume_valid = 0x1 << 15 if entry.flag_assume_valid else 0
-            name_bytes = entry.name.encode("utf8")
-            bytes_len = len(name_bytes)
-            if bytes_len >= 0xFFF:
-                name_length = 0xFFF
-            else:
-                name_length = bytes_len
-
-            # We merge back three pieces of data (two flags and the
-            # length of the name) on the same two bytes.
-            f.write((flag_assume_valid | entry.flag_stage | name_length).to_bytes(2, "big"))
-
-            f.write(name_bytes)
-            f.write((0).to_bytes(1, "big"))
-
-            # header length + filename length + final 0x00
-            idx += 62 + len(name_bytes) + 1
-
-            # Add padding if necessary (padded in multiple of 8 bytes)
-            if idx % 8 != 0:
-                pad = 8 - (idx % 8)
-                f.write((0).to_bytes(pad, "big"))
-                idx += pad
+        index_write(repo, index)
+    
