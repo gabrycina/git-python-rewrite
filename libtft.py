@@ -493,3 +493,50 @@ def check_ignore(rules, path):
         return result
 
     return check_ignore_absolute(rules.absolute, path)
+
+#Remove command
+#parsing
+argsp = argsubparsers.add_parser("rm", help="Remove files from the working tree and the index.")
+argsp.add_argument("path", nargs="+", help="Files to remove")
+
+def cmd_rm(args):
+  repo = repo_find()
+  rm(repo, args.path)
+
+#The rm function
+def rm(repo, paths, delete=True, skip_missing=False):
+  # Find and read the index
+  index = index_read(repo)
+
+  worktree = repo.worktree + os.sep
+
+  # Make paths absolute
+  abspaths = list()
+  for path in paths:
+    abspath = os.path.abspath(path)
+    if abspath.startswith(worktree):
+      abspaths.append(abspath)
+    else:
+      raise Exception("Cannot remove paths outside of worktree: {}".format(paths))
+
+  kept_entries = list()
+  remove = list()
+
+  for e in index.entries:
+    full_path = os.path.join(repo.worktree, e.name)
+
+    if full_path in abspaths:
+      remove.append(full_path)
+      abspaths.remove(full_path)
+    else:
+      kept_entries.append(e) # Preserve entry
+
+  if len(abspaths) > 0 and not skip_missing:
+    raise Exception("Cannot remove paths not in the index: {}".format(abspaths))
+
+  if delete:
+    for path in remove:
+      os.unlink(path)
+
+  index.entries = kept_entries
+  index_write(repo, index)  
