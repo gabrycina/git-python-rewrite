@@ -180,7 +180,7 @@ def tree_serialize(obj):
     return ret
 
 def tree_leaf_sort_key(leaf):
-    return leaf.path + ('/' if leaf.path.startswith(b'10') else '')
+    return leaf.path + ('' if leaf.path.startswith(b'10') else '/')
 
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
