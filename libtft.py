@@ -20,7 +20,6 @@ argsubparsers.required = True
 argsp = argsubparsers.add_parser("init", help="Initialize a new empty tft repository.")
 argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Where to create the repository.")
 
-
 #subparser for hash-object
 argsp = argsubparsers.add_parser("hash-object", help="Compute object ID and optionally creates a blob from a file")
 argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit", "tag", "tree"], default="blob", help="Specify the type")
@@ -136,6 +135,9 @@ class GitBlob(GitObject):
         """Stores the data in the blob."""
         self.blobdata = data
 
+class GitTag(GitCommit):
+    fmt = b'tag'    
+      
 class GitTree(GitObject):
     fmt = b'tree'
     def serialize(self):
@@ -199,7 +201,6 @@ def tree_leaf_sort_key(leaf):
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
     return os.path.join(repo.gitdir, *path)
-
 
 def repo_file(repo, *path, mkdir=False):
     """Same as repo_path, but create dirname(*path) if absent.  For
