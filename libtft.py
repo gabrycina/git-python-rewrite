@@ -27,6 +27,9 @@ argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit",
 argsp.add_argument("-w", dest="write", action="store_true", help="Actually write the object into the database")
 argsp.add_argument("path", help="Read object from <file>")
 
+#subparser for show-ref
+argsp = argsubparsers.add_parser("show-ref", help="List references in the current repository.")
+
 #subparser for ls-tree
 argsp = argsubparsers.add_parser("ls-tree", help="Pretty-print a tree object.")
 argsp.add_argument("-r", dest="recursive", action="store_true", help="Recurse into sub-trees")
@@ -367,7 +370,6 @@ def object_find(repo, name, fmt=None, follow=True):
     """Just temporary, will implement this fully soon"""
     return name
   
-  
 def kvlm_parse(raw, start=0, dct=None):
     # dct initialization
     if not dct:
@@ -408,6 +410,43 @@ def kvlm_parse(raw, start=0, dct=None):
     # Recursive call to parse the rest of the data
     return kvlm_parse(raw, start=end+1, dct=dct)
 
+def ref_resolve(repo, ref):
+    path = repo_file(repo, ref)
+
+    if not os.path.isfile(path):
+        return None
+
+    with open(path, 'r') as fp:
+        data = fp.read()[:-1]
+
+    if data.startswith("ref: "):
+        return ref_resolve(repo, data[5:])
+    else:
+        return data
+
+def ref_list(repo, path=None):
+    if not path:
+        path = repo_dir(repo, "refs")
+    ret = collections.OrderedDict()
+
+    for f in sorted(os.listdir(path)):
+        can = os.path.join(path, f)
+        if os.path.isdir(can):
+            ret[f] = ref_list(repo, can)
+        else:
+            ret[f] = ref_resolve(repo, can)
+
+    return ret
+
+def show_ref(repo, refs, with_hash=True, prefix=''):
+    for name, val in refs.items():
+        if type(val) == str:
+            print("{0}{1}{2}".format(
+                val + " " if with_hash else "",
+                prefix + "/" if prefix else "",
+                name))
+        else:
+            show_ref(repo, val, with_hash, prefix=f"{prefix}{"/" if prefix else ""}{name}")
 
 def kvlm_serialize(kvlm):
     res = b''
@@ -448,7 +487,6 @@ def ls_tree(repo, ref, recursive=None, prefix=''):
                 os.path.join(prefix, item.path)))
         else:
             ls_tree(repo, item.sha, recursive, prefix=os.path.join(prefix, item.path))
-
 
 def cat_file(repo, obj, fmt=None):
     obj = object_read(repo, object_find(repo, obj, fmt=fmt))
@@ -509,6 +547,12 @@ def cmd_hash_object(args):
     with open(args.path, "rb") as fd:
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
+
+def cmd_show_ref(args):
+    """Bridge function to show a reference."""
+    repo = repo_find()
+    refs = ref_list(repo)
+    show_ref(repo, refs, prefix="refs")
 
 def cmd_ls_tree(args):
     """Bridge function to list the contents of a tree object."""
