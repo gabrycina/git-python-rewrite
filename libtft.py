@@ -26,6 +26,10 @@ argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit",
 argsp.add_argument("-w", dest="write", action="store_true", help="Actually write the object into the database")
 argsp.add_argument("path", help="Read object from <file>")
 
+#subparser for ls-files
+argsp = argsubparsers.add_parser("ls-files", help = "List all the stage files")
+argsp.add_argument("--verbose", action="store_true", help="Show everything.")
+
 #subparser for rev-parse
 argsp = argsubparsers.add_parser("rev-parse", help="Parse revision (or other objects) identifiers")
 argsp.add_argument("--wyag-type", metavar="type", dest="type", 
@@ -419,6 +423,41 @@ def object_write(obj, repo=None):
     return sha
  
 def object_find(repo, name, fmt=None, follow=True):
+    """Just temporary, will implement this fully soon"""
+    return name
+  
+
+def cmd_ls_files(args):
+    repo = repo_find()
+    index = index_read(repo)
+
+    if args.verbose:
+        print("Index file format v{}, containing {} entries.".format(index.version, len(index.entries)))
+    
+    for entry in index.entries:
+        print(entry.name)
+        if args.verbose:
+            print("  {} with perms: {:o}".format(
+            {0b1000: "regular file",
+            0b1010: "symlink",
+            0b1110: "git link"}[entry.mode_type],
+        entry.mode_perms))
+        print("  on blob: {}".format(entry.sha))
+        print("  created: {}.{}, modified: {}.{}".format(
+            datetime.fromtimestamp(entry.ctime[0]),
+            entry.ctime[1], 
+            datetime.fromtimestamp(entry.mtime[0]), 
+            entry.mtime[1]))
+        print("  device: {}, inode: {}".format(entry.dev, entry.ino))
+        print("  user: {} ({})  group: {} ({})".format(
+            pwd.getpwuid(entry.uid).pw_name,
+            entry.uid,
+            grp.getgrgid(entry.gid).gr_name,
+            entry.gid))
+        print("  flags: stage={} assume_valid={}".format(
+        entry.flag_stage,
+        entry.flag_assume_valid))
+
     sha = object_resolve(repo, name)
 
     if not sha:
