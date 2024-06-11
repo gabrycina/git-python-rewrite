@@ -20,7 +20,6 @@ argsubparsers.required = True
 argsp = argsubparsers.add_parser("init", help="Initialize a new empty tft repository.")
 argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Where to create the repository.")
 
-
 #subparser for hash-object
 argsp = argsubparsers.add_parser("hash-object", help="Compute object ID and optionally creates a blob from a file")
 argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit", "tag", "tree"], default="blob", help="Specify the type")
@@ -30,6 +29,34 @@ argsp.add_argument("path", help="Read object from <file>")
 #subparser for ls-files
 argsp = argsubparsers.add_parser("ls-files", help = "List all the stage files")
 argsp.add_argument("--verbose", action="store_true", help="Show everything.")
+
+#subparser for rev-parse
+argsp = argsubparsers.add_parser("rev-parse", help="Parse revision (or other objects) identifiers")
+argsp.add_argument("--wyag-type", metavar="type", dest="type", 
+                   choices=["blob", "commit", "tag", "tree"], 
+                   default=None, help="Specify the expected type")
+argsp.add_argument("name", help="The name to parse")
+
+#subparser for tag
+argsp = argsubparsers.add_parser("tag",help="List and create tags")
+argsp.add_argument("-a",action="store_true",dest="create_tag_object",help="Whether to create a tag object")
+argsp.add_argument("name",nargs="?",help="The new tag's name")
+argsp.add_argument("object",default="HEAD",nargs="?",help="The object the new tag will point to")
+
+#subparser for show-ref
+argsp = argsubparsers.add_parser("show-ref", help="List references in the current repository.")
+
+#subparser for ls-tree
+argsp = argsubparsers.add_parser("ls-tree", help="Pretty-print a tree object.")
+argsp.add_argument("-r", dest="recursive", action="store_true", help="Recurse into sub-trees")
+argsp.add_argument("tree", help="A tree-ish object.")
+
+#subparser for log command
+argsp = argsubparsers.add_parser("log", help="Display history of a given commit.")
+argsp.add_argument("commit",
+                   default="HEAD",
+                   nargs="?",
+                   help="Commit to start at.")
 
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
@@ -124,12 +151,112 @@ class GitBlob(GitObject):
     def deserialize(self, data):
         """Stores the data in the blob."""
         self.blobdata = data
-      
-      
+
+class GitTag(GitCommit):
+    fmt = b'tag'    
+
+class GitIndexEntry(object):
+    def __init__(self, ctime=None, mtime=None, dev=None, ino=None,
+                 mode_type=None, mode_perms=None, uid=None, gid=None,
+                 fsize=None, sha=None, flag_assume_valid=None,
+                 flag_stage=None, name=None):
+        # Last modification of metadata
+        self.ctime = ctime
+        # Last modification of data
+        self.mtime = mtime
+        # Device ID
+        self.dev = dev
+        # The file's inode number
+        self.ino = ino
+        # File mode
+        self.mode_type = mode_type
+        # Permissions as integer
+        self.mode_perms = mode_perms
+        # Owner user ID
+        self.uid = uid
+        # Owner group ID
+        self.gid = gid
+        # Size of the file
+        self.fsize = fsize
+        # SHA-1 of the file
+        self.sha = sha
+        # The file is assumed to be valid
+        self.flag_assume_valid = flag_assume_valid
+        # The file is staged
+        self.flag_stage = flag_stage
+        # The file name
+        self.name = name
+
+class GitIndex(object):
+    version = None
+    entries = []
+    def __init__(self, version=2, entries=list()):
+        self.version = version
+        self.entries = entries
+
+class GitTree(GitObject):
+    fmt = b'tree'
+    def serialize(self):
+        return tree_serialize(self)
+
+    def deserialize(self, data):
+        self.items = tree_parse(data)
+    
+    def init(self):
+        self.items = list()
+
+class GitTreeLeaf(object):
+    def __init__(self, mode, path, sha):
+        self.mode = mode
+        self.path = path
+        self.sha = sha
+
+def tree_parse_one(raw, start=0):
+    # Find the first space
+    x = raw.find(b' ', start)
+    assert x - start == 5 or x - start == 6
+    # Read the mode
+    mode = raw[start:x]
+    if len(mode):
+        mode = b' ' + mode
+    # Find the NULL value
+    y = raw.find(b'\x00', x)
+    # Read the path
+    path = raw[x + 1:y]
+
+    # Read the sha
+    sha = format(int.from_bytes(raw[y + 1:], 'big'), '040x')
+    return y + 21, GitTreeLeaf(mode, path.decode('utf-8'), sha)
+
+def tree_parse(raw):
+    pos = 0
+    max = len(raw)
+    ret = list()
+    while pos < max:
+        pos, leaf = tree_parse_one(raw, pos)
+        ret.append(leaf)
+
+    return ret
+
+def tree_serialize(obj):
+    obj.items.sort(key=tree_leaf_sort_key)
+    ret = b''
+    for i in obj.items:
+        ret += i.mode
+        ret += b' '
+        ret += i.path.encode('utf-8')
+        ret += b'\x00'
+        sha = int(i.sha, 16)
+        ret += sha.to_bytes(20, 'big')
+        
+    return ret
+
+def tree_leaf_sort_key(leaf):
+    return leaf.path + ('' if leaf.path.startswith(b'10') else '/')
+
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
     return os.path.join(repo.gitdir, *path)
-
 
 def repo_file(repo, *path, mkdir=False):
     """Same as repo_path, but create dirname(*path) if absent.  For
@@ -138,7 +265,6 @@ example, repo_file(r, \"refs\", \"remotes\", \"origin\", \"HEAD\") will create
 
     if repo_dir(repo, *path[:-1], mkdir=mkdir):
         return repo_path(repo, *path)
-
 
 def repo_dir(repo, *path, mkdir=False):
     """Same as repo_path, but mkdir *path if absent if mkdir."""
@@ -332,6 +458,145 @@ def cmd_ls_files(args):
         entry.flag_stage,
         entry.flag_assume_valid))
 
+    sha = object_resolve(repo, name)
+
+    if not sha:
+        raise Exception("No such reference {0}.".format(name))
+
+    if len(sha) > 1:
+        raise Exception("Ambiguous reference {0}: Candidates are:\n - {1}.".format(name,  "\n - ".join(sha)))
+    
+    sha = sha[0]
+
+    if not fmt:
+        return sha
+
+    while True:
+        obj = object_read(repo, sha)
+        if obj.fmt == fmt:
+            return sha
+        if not follow:
+            return None
+        sha = obj.oid
+
+        if obj.fmt == b'tag':
+            sha = obj.kvlm[b'object'].decode("ascii")
+        elif obj.fmt == b'commit' and fmt == b'tree':
+            sha = obj.kvlm[b'tree'].decode("ascii")
+        else:
+            return None
+
+def index_read(repo):
+    index_file = repo_file(repo, "index")
+
+    if not os.path.exists(index_file):
+        return GitIndex()
+    
+    with open(index_file, "rb") as f:
+        raw = f.read()
+    
+    # First 12 bytes are the header
+    header = raw[:12]
+    signature = header[:4]
+    assert signature == b"DIRC" # DirCache
+    version = int.from_bytes(header[4:8], 'big')
+    # Tft only supports index file version 2
+    assert version == 2
+    count = int.from_bytes(header[8:12], "big")
+
+    entries = list()
+
+    content = raw[12:]
+    index = 0
+    for i in range(count):
+        
+        ctime_s =  int.from_bytes(content[idx: idx+4], "big")
+        ctime_ns = int.from_bytes(content[idx+4: idx+8], "big")
+        mtime_s = int.from_bytes(content[idx+8: idx+12], "big")
+        mtime_ns = int.from_bytes(content[idx+12: idx+16], "big")
+        dev = int.from_bytes(content[idx+16: idx+20], "big")
+        ino = int.from_bytes(content[idx+20: idx+24], "big")
+        unused = int.from_bytes(content[idx+24: idx+26], "big")
+        assert 0 == unused
+        mode = int.from_bytes(content[idx+26: idx+28], "big")
+        mode_type = mode >> 12
+        assert mode_type in [0b1000, 0b1010, 0b1110]
+        mode_perms = mode & 0b0000000111111111
+        uid = int.from_bytes(content[idx+28: idx+32], "big")
+        gid = int.from_bytes(content[idx+32: idx+36], "big")
+        fsize = int.from_bytes(content[idx+36: idx+40], "big")
+        sha = format(int.from_bytes(content[idx+40: idx+60], "big"), "040x")
+        flags = int.from_bytes(content[idx+60: idx+62], "big")
+        flag_assume_valid = (flags & 0b1000000000000000) != 0
+        flag_extended = (flags & 0b0100000000000000) != 0
+        assert not flag_extended
+        flag_stage =  flags & 0b0011000000000000
+        name_length = flags & 0b0000111111111111
+        
+        idx += 62
+
+        if name_length < 0xFFF:
+            assert content[idx + name_length] == 0x00
+            raw_name = content[idx:idx+name_length]
+            idx += name_length + 1
+        else:
+            print("Notice: Name is 0x{:X} bytes long.".format(name_length))
+            null_idx = content.find(b'\x00', idx + 0xFFF)
+            raw_name = content[idx: null_idx]
+            idx = null_idx + 1
+
+        # Just parse the name as utf8.
+        name = raw_name.decode("utf8")
+
+        idx = 8 * ceil(idx / 8)
+
+        # And we add this entry to our list.
+        entries.append(GitIndexEntry(ctime=(ctime_s, ctime_ns),
+                                     mtime=(mtime_s,  mtime_ns),
+                                     dev=dev,
+                                     ino=ino,
+                                     mode_type=mode_type,
+                                     mode_perms=mode_perms,
+                                     uid=uid,
+                                     gid=gid,
+                                     fsize=fsize,
+                                     sha=sha,
+                                     flag_assume_valid=flag_assume_valid,
+                                     flag_stage=flag_stage,
+                                     name=name))
+
+    return GitIndex(version=version, entries=entries)
+
+def object_resolve(repo, name):
+    candidates = list()
+    hashRe = re.compile(b'^[0-9A-Fa-f]{4,40}$') # Hex string matcher
+  
+    if not name.strip(): # Empty string
+        return None
+    
+    if name == "HEAD": # HEAD case
+        return [ ref_resolve(repo, "HEAD") ]
+
+    if hashRe.match(name):# Short or long hash
+        name = name.lower()
+        prefix = name[0:2]
+        path = repo_dir(repo, "objects", prefix)
+
+        if path:
+            rem = name[2:]
+            for f in os.listdir(path):
+                if f.startswith(rem):
+                    candidates.append(prefix + f)
+
+    as_tag = ref_resolve(repo, "refs/tags/" + name)
+    if as_tag: # Ref case
+        candidates.append(as_tag)
+    
+    as_branch = ref_resolve(repo, "refs/heads/" + name)
+    if as_branch: # Branch case
+        candidates.append(as_branch)
+    return candidates
+
 def kvlm_parse(raw, start=0, dct=None):
     # dct initialization
     if not dct:
@@ -372,6 +637,43 @@ def kvlm_parse(raw, start=0, dct=None):
     # Recursive call to parse the rest of the data
     return kvlm_parse(raw, start=end+1, dct=dct)
 
+def ref_resolve(repo, ref):
+    path = repo_file(repo, ref)
+
+    if not os.path.isfile(path):
+        return None
+
+    with open(path, 'r') as fp:
+        data = fp.read()[:-1]
+
+    if data.startswith("ref: "):
+        return ref_resolve(repo, data[5:])
+    else:
+        return data
+
+def ref_list(repo, path=None):
+    if not path:
+        path = repo_dir(repo, "refs")
+    ret = collections.OrderedDict()
+
+    for f in sorted(os.listdir(path)):
+        can = os.path.join(path, f)
+        if os.path.isdir(can):
+            ret[f] = ref_list(repo, can)
+        else:
+            ret[f] = ref_resolve(repo, can)
+
+    return ret
+
+def show_ref(repo, refs, with_hash=True, prefix=''):
+    for name, val in refs.items():
+        if type(val) == str:
+            print("{0}{1}{2}".format(
+                val + " " if with_hash else "",
+                prefix + "/" if prefix else "",
+                name))
+        else:
+            show_ref(repo, val, with_hash, prefix=f"{prefix}{"/" if prefix else ""}{name}")
 
 def kvlm_serialize(kvlm):
     res = b''
@@ -394,6 +696,24 @@ def kvlm_serialize(kvlm):
     res += b'\n' + kvlm[None] + b'\n'
 
     return res
+  
+def ls_tree(repo, ref, recursive=None, prefix=''):
+    obj = object_read(repo, object_find(repo, ref, fmt=b'tree'))
+    for item in obj.items:
+        type = item.mode[0:(1 if len(item.mode) == 5 else 2)]
+        match (type):
+            case '04': type = 'tree'
+            case '10': type = 'blob'
+            case '12': type = 'blob'
+            case '16': type = 'blob'
+            case _: raise Exception("Unknown type %s!" % type)
+        if not (recursive and type == 'tree'):
+            print("{0} {1} {2}\t{3}".format(
+                "0" * (6 - len(item.mode)) + item.mode.decode("ascii"), type,
+                item.sha,
+                os.path.join(prefix, item.path)))
+        else:
+            ls_tree(repo, item.sha, recursive, prefix=os.path.join(prefix, item.path))
 
 def cat_file(repo, obj, fmt=None):
     obj = object_read(repo, object_find(repo, obj, fmt=fmt))
@@ -403,6 +723,46 @@ def cat_file(repo, obj, fmt=None):
 def cmd_init(args):
     """Bridge function to initialize a new repository."""
     repo_create(args.path)
+
+def cmd_log(args):
+    repo = repo_find()
+
+    print("digraph wyaglog{")
+    print("  node[shape=rect]")
+    log_graphviz(repo, object_find(repo, args.commit), set())
+    print("}")
+
+def log_graphviz(repo, sha, seen):
+
+    if sha in seen:
+        return
+    seen.add(sha)
+
+    commit = object_read(repo, sha)
+    short_hash = sha[0:8]
+    message = commit.kvlm[None].decode("utf8").strip()
+    message = message.replace("\\", "\\\\")
+    message = message.replace("\"", "\\\"")
+
+    if "\n" in message: # Keep only the first line
+        message = message[:message.index("\n")]
+
+    print("  c_{0} [label=\"{1}: {2}\"]".format(sha, sha[0:7], message))
+    assert commit.fmt==b'commit'
+
+    if not b'parent' in commit.kvlm.keys():
+        # Base case: the initial commit.
+        return
+
+    parents = commit.kvlm[b'parent']
+
+    if type(parents) != list:
+        parents = [ parents ]
+
+    for p in parents:
+        p = p.decode("ascii")
+        print ("  c_{0} -> c_{1};".format(sha, p))
+        log_graphviz(repo, p, seen)
 
 def cmd_hash_object(args):
     """Bridge function to compute the hash-name of object and optionally create the blob"""
@@ -414,3 +774,58 @@ def cmd_hash_object(args):
     with open(args.path, "rb") as fd:
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
+
+def cmd_rev_parse(args):
+    """Bridge function to parse a revision."""
+    fmt = args.type.encode() if args.type else None
+
+    repo = repo_find()
+    print(object_find(repo, args.name, fmt, follow=True))
+
+def cmd_tag(args):
+    repo = repo_find()
+    # If the user provided a name for a new tag
+    if args.name:
+        # Call tag_create function to create the new tag in the repository
+        tag_create(repo,args.name, args.object, type="object" if args.create_tag_object else "ref")  
+    # If the user did not provide a name for a new tag
+    else:
+        # Get the list of references (refs) in the repository
+        refs = ref_list(repo)
+        # Show the list of tags without their respective hashes
+        show_ref(repo, refs["tags"], with_hash=False)
+
+def tag_create(repo, name, ref, create_tag_object=False):
+    # get the GitObject from the object reference
+    sha = object_find(repo, ref)
+    if create_tag_object:
+        # create tag object (commit)
+        tag = GitTag(repo)
+        # Initialize the key-value list map for the tag object
+        tag.kvlm = collections.OrderedDict()
+        tag.kvlm[b'object'] = sha.encode()
+        tag.kvlm[b'type'] = b'commit'
+        tag.kvlm[b'tag'] = name.encode() #the user give the name
+        tag.kvlm[b'tagger'] = b'Wyag <tft@example.com>'
+        tag.kvlm[None] = b"A tag generated by tft, which won't let you customize the message!"
+        tag_sha = object_write(tag)
+        # Create a reference to the tag object in the repository
+        ref_create(repo, "tags/" + name, tag_sha)
+    else:
+        # create lightweight tag (ref)
+        ref_create(repo, "tags/" + name, sha)
+
+def ref_create(repo, ref_name, sha):
+    with open(repo_file(repo, "refs/" + ref_name), 'w') as fp:
+        fp.write(sha + "\n")
+
+def cmd_show_ref(args):
+    """Bridge function to show a reference."""
+    repo = repo_find()
+    refs = ref_list(repo)
+    show_ref(repo, refs, prefix="refs")
+
+def cmd_ls_tree(args):
+    """Bridge function to list the contents of a tree object."""
+    repo = repo_find()
+    ls_tree(repo, args.tree, args.recursive)
