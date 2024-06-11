@@ -26,6 +26,13 @@ argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit",
 argsp.add_argument("-w", dest="write", action="store_true", help="Actually write the object into the database")
 argsp.add_argument("path", help="Read object from <file>")
 
+#subparser for rev-parse
+argsp = argsubparsers.add_parser("rev-parse", help="Parse revision (or other objects) identifiers")
+argsp.add_argument("--wyag-type", metavar="type", dest="type", 
+                   choices=["blob", "commit", "tag", "tree"], 
+                   default=None, help="Specify the expected type")
+argsp.add_argument("name", help="The name to parse")
+
 #subparser for tag
 argsp = argsubparsers.add_parser("tag",help="List and create tags")
 argsp.add_argument("-a",action="store_true",dest="create_tag_object",help="Whether to create a tag object")
@@ -374,9 +381,64 @@ def object_write(obj, repo=None):
     return sha
  
 def object_find(repo, name, fmt=None, follow=True):
-    """Just temporary, will implement this fully soon"""
-    return name
+    sha = object_resolve(repo, name)
+
+    if not sha:
+        raise Exception("No such reference {0}.".format(name))
+
+    if len(sha) > 1:
+        raise Exception("Ambiguous reference {0}: Candidates are:\n - {1}.".format(name,  "\n - ".join(sha)))
+    
+    sha = sha[0]
+
+    if not fmt:
+        return sha
+
+    while True:
+        obj = object_read(repo, sha)
+        if obj.fmt == fmt:
+            return sha
+        if not follow:
+            return None
+        sha = obj.oid
+
+        if obj.fmt == b'tag':
+            sha = obj.kvlm[b'object'].decode("ascii")
+        elif obj.fmt == b'commit' and fmt == b'tree':
+            sha = obj.kvlm[b'tree'].decode("ascii")
+        else:
+            return None
   
+def object_resolve(repo, name):
+    candidates = list()
+    hashRe = re.compile(b'^[0-9A-Fa-f]{4,40}$') # Hex string matcher
+  
+    if not name.strip(): # Empty string
+        return None
+    
+    if name == "HEAD": # HEAD case
+        return [ ref_resolve(repo, "HEAD") ]
+
+    if hashRe.match(name):# Short or long hash
+        name = name.lower()
+        prefix = name[0:2]
+        path = repo_dir(repo, "objects", prefix)
+
+        if path:
+            rem = name[2:]
+            for f in os.listdir(path):
+                if f.startswith(rem):
+                    candidates.append(prefix + f)
+
+    as_tag = ref_resolve(repo, "refs/tags/" + name)
+    if as_tag: # Ref case
+        candidates.append(as_tag)
+    
+    as_branch = ref_resolve(repo, "refs/heads/" + name)
+    if as_branch: # Branch case
+        candidates.append(as_branch)
+    return candidates
+
 def kvlm_parse(raw, start=0, dct=None):
     # dct initialization
     if not dct:
@@ -555,6 +617,13 @@ def cmd_hash_object(args):
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
 
+def cmd_rev_parse(args):
+    """Bridge function to parse a revision."""
+    fmt = args.type.encode() if args.type else None
+
+    repo = repo_find()
+    print(object_find(repo, args.name, fmt, follow=True))
+
 def cmd_tag(args):
     repo = repo_find()
     # If the user provided a name for a new tag
@@ -602,4 +671,3 @@ def cmd_ls_tree(args):
     """Bridge function to list the contents of a tree object."""
     repo = repo_find()
     ls_tree(repo, args.tree, args.recursive)
-
