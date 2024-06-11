@@ -20,7 +20,6 @@ argsubparsers.required = True
 argsp = argsubparsers.add_parser("init", help="Initialize a new empty tft repository.")
 argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Where to create the repository.")
 
-
 #subparser for hash-object
 argsp = argsubparsers.add_parser("hash-object", help="Compute object ID and optionally creates a blob from a file")
 argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit", "tag", "tree"], default="blob", help="Specify the type")
@@ -33,6 +32,27 @@ argsp.add_argument("--wyag-type", metavar="type", dest="type",
                    choices=["blob", "commit", "tag", "tree"], 
                    default=None, help="Specify the expected type")
 argsp.add_argument("name", help="The name to parse")
+
+#subparser for tag
+argsp = argsubparsers.add_parser("tag",help="List and create tags")
+argsp.add_argument("-a",action="store_true",dest="create_tag_object",help="Whether to create a tag object")
+argsp.add_argument("name",nargs="?",help="The new tag's name")
+argsp.add_argument("object",default="HEAD",nargs="?",help="The object the new tag will point to")
+
+#subparser for show-ref
+argsp = argsubparsers.add_parser("show-ref", help="List references in the current repository.")
+
+#subparser for ls-tree
+argsp = argsubparsers.add_parser("ls-tree", help="Pretty-print a tree object.")
+argsp.add_argument("-r", dest="recursive", action="store_true", help="Recurse into sub-trees")
+argsp.add_argument("tree", help="A tree-ish object.")
+
+#subparser for log command
+argsp = argsubparsers.add_parser("log", help="Display history of a given commit.")
+argsp.add_argument("commit",
+                   default="HEAD",
+                   nargs="?",
+                   help="Commit to start at.")
 
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
@@ -127,12 +147,73 @@ class GitBlob(GitObject):
     def deserialize(self, data):
         """Stores the data in the blob."""
         self.blobdata = data
+
+class GitTag(GitCommit):
+    fmt = b'tag'    
       
-      
+class GitTree(GitObject):
+    fmt = b'tree'
+    def serialize(self):
+        return tree_serialize(self)
+
+    def deserialize(self, data):
+        self.items = tree_parse(data)
+    
+    def init(self):
+        self.items = list()
+
+class GitTreeLeaf(object):
+    def __init__(self, mode, path, sha):
+        self.mode = mode
+        self.path = path
+        self.sha = sha
+
+def tree_parse_one(raw, start=0):
+    # Find the first space
+    x = raw.find(b' ', start)
+    assert x - start == 5 or x - start == 6
+    # Read the mode
+    mode = raw[start:x]
+    if len(mode):
+        mode = b' ' + mode
+    # Find the NULL value
+    y = raw.find(b'\x00', x)
+    # Read the path
+    path = raw[x + 1:y]
+
+    # Read the sha
+    sha = format(int.from_bytes(raw[y + 1:], 'big'), '040x')
+    return y + 21, GitTreeLeaf(mode, path.decode('utf-8'), sha)
+
+def tree_parse(raw):
+    pos = 0
+    max = len(raw)
+    ret = list()
+    while pos < max:
+        pos, leaf = tree_parse_one(raw, pos)
+        ret.append(leaf)
+
+    return ret
+
+def tree_serialize(obj):
+    obj.items.sort(key=tree_leaf_sort_key)
+    ret = b''
+    for i in obj.items:
+        ret += i.mode
+        ret += b' '
+        ret += i.path.encode('utf-8')
+        ret += b'\x00'
+        sha = int(i.sha, 16)
+        ret += sha.to_bytes(20, 'big')
+        
+    return ret
+
+def tree_leaf_sort_key(leaf):
+    return leaf.path + ('' if leaf.path.startswith(b'10') else '/')
+
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
     return os.path.join(repo.gitdir, *path)
-
 
 def repo_file(repo, *path, mkdir=False):
     """Same as repo_path, but create dirname(*path) if absent.  For
@@ -398,6 +479,43 @@ def kvlm_parse(raw, start=0, dct=None):
     # Recursive call to parse the rest of the data
     return kvlm_parse(raw, start=end+1, dct=dct)
 
+def ref_resolve(repo, ref):
+    path = repo_file(repo, ref)
+
+    if not os.path.isfile(path):
+        return None
+
+    with open(path, 'r') as fp:
+        data = fp.read()[:-1]
+
+    if data.startswith("ref: "):
+        return ref_resolve(repo, data[5:])
+    else:
+        return data
+
+def ref_list(repo, path=None):
+    if not path:
+        path = repo_dir(repo, "refs")
+    ret = collections.OrderedDict()
+
+    for f in sorted(os.listdir(path)):
+        can = os.path.join(path, f)
+        if os.path.isdir(can):
+            ret[f] = ref_list(repo, can)
+        else:
+            ret[f] = ref_resolve(repo, can)
+
+    return ret
+
+def show_ref(repo, refs, with_hash=True, prefix=''):
+    for name, val in refs.items():
+        if type(val) == str:
+            print("{0}{1}{2}".format(
+                val + " " if with_hash else "",
+                prefix + "/" if prefix else "",
+                name))
+        else:
+            show_ref(repo, val, with_hash, prefix=f"{prefix}{"/" if prefix else ""}{name}")
 
 def kvlm_serialize(kvlm):
     res = b''
@@ -421,6 +539,24 @@ def kvlm_serialize(kvlm):
 
     return res
   
+def ls_tree(repo, ref, recursive=None, prefix=''):
+    obj = object_read(repo, object_find(repo, ref, fmt=b'tree'))
+    for item in obj.items:
+        type = item.mode[0:(1 if len(item.mode) == 5 else 2)]
+        match (type):
+            case '04': type = 'tree'
+            case '10': type = 'blob'
+            case '12': type = 'blob'
+            case '16': type = 'blob'
+            case _: raise Exception("Unknown type %s!" % type)
+        if not (recursive and type == 'tree'):
+            print("{0} {1} {2}\t{3}".format(
+                "0" * (6 - len(item.mode)) + item.mode.decode("ascii"), type,
+                item.sha,
+                os.path.join(prefix, item.path)))
+        else:
+            ls_tree(repo, item.sha, recursive, prefix=os.path.join(prefix, item.path))
+
 def cat_file(repo, obj, fmt=None):
     obj = object_read(repo, object_find(repo, obj, fmt=fmt))
     sys.stdout.buffer.write(obj.serialize())
@@ -429,6 +565,46 @@ def cat_file(repo, obj, fmt=None):
 def cmd_init(args):
     """Bridge function to initialize a new repository."""
     repo_create(args.path)
+
+def cmd_log(args):
+    repo = repo_find()
+
+    print("digraph wyaglog{")
+    print("  node[shape=rect]")
+    log_graphviz(repo, object_find(repo, args.commit), set())
+    print("}")
+
+def log_graphviz(repo, sha, seen):
+
+    if sha in seen:
+        return
+    seen.add(sha)
+
+    commit = object_read(repo, sha)
+    short_hash = sha[0:8]
+    message = commit.kvlm[None].decode("utf8").strip()
+    message = message.replace("\\", "\\\\")
+    message = message.replace("\"", "\\\"")
+
+    if "\n" in message: # Keep only the first line
+        message = message[:message.index("\n")]
+
+    print("  c_{0} [label=\"{1}: {2}\"]".format(sha, sha[0:7], message))
+    assert commit.fmt==b'commit'
+
+    if not b'parent' in commit.kvlm.keys():
+        # Base case: the initial commit.
+        return
+
+    parents = commit.kvlm[b'parent']
+
+    if type(parents) != list:
+        parents = [ parents ]
+
+    for p in parents:
+        p = p.decode("ascii")
+        print ("  c_{0} -> c_{1};".format(sha, p))
+        log_graphviz(repo, p, seen)
 
 def cmd_hash_object(args):
     """Bridge function to compute the hash-name of object and optionally create the blob"""
@@ -447,3 +623,51 @@ def cmd_rev_parse(args):
 
     repo = repo_find()
     print(object_find(repo, args.name, fmt, follow=True))
+
+def cmd_tag(args):
+    repo = repo_find()
+    # If the user provided a name for a new tag
+    if args.name:
+        # Call tag_create function to create the new tag in the repository
+        tag_create(repo,args.name, args.object, type="object" if args.create_tag_object else "ref")  
+    # If the user did not provide a name for a new tag
+    else:
+        # Get the list of references (refs) in the repository
+        refs = ref_list(repo)
+        # Show the list of tags without their respective hashes
+        show_ref(repo, refs["tags"], with_hash=False)
+
+def tag_create(repo, name, ref, create_tag_object=False):
+    # get the GitObject from the object reference
+    sha = object_find(repo, ref)
+    if create_tag_object:
+        # create tag object (commit)
+        tag = GitTag(repo)
+        # Initialize the key-value list map for the tag object
+        tag.kvlm = collections.OrderedDict()
+        tag.kvlm[b'object'] = sha.encode()
+        tag.kvlm[b'type'] = b'commit'
+        tag.kvlm[b'tag'] = name.encode() #the user give the name
+        tag.kvlm[b'tagger'] = b'Wyag <tft@example.com>'
+        tag.kvlm[None] = b"A tag generated by tft, which won't let you customize the message!"
+        tag_sha = object_write(tag)
+        # Create a reference to the tag object in the repository
+        ref_create(repo, "tags/" + name, tag_sha)
+    else:
+        # create lightweight tag (ref)
+        ref_create(repo, "tags/" + name, sha)
+
+def ref_create(repo, ref_name, sha):
+    with open(repo_file(repo, "refs/" + ref_name), 'w') as fp:
+        fp.write(sha + "\n")
+
+def cmd_show_ref(args):
+    """Bridge function to show a reference."""
+    repo = repo_find()
+    refs = ref_list(repo)
+    show_ref(repo, refs, prefix="refs")
+
+def cmd_ls_tree(args):
+    """Bridge function to list the contents of a tree object."""
+    repo = repo_find()
+    ls_tree(repo, args.tree, args.recursive)
