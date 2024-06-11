@@ -58,6 +58,10 @@ argsp.add_argument("commit",
                    nargs="?",
                    help="Commit to start at.")
 
+#subparser for check-ignore command
+argsp = argsubparsers.add_parser("check-ignore", help = "Check path(s) against ignore rules.")
+argsp.add_argument("path", nargs="+", help="Paths to check")
+
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
     match args.command:
@@ -775,6 +779,115 @@ def cmd_hash_object(args):
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
 
+#Check-ignore function
+def cmd_check_ignore(args):
+  repo = repo_find()
+  rules = gitignore_read(repo)
+  for path in args.path:
+      if check_ignore(rules, path):
+        print(path)
+
+def gitignore_parse1(raw):
+    raw = raw.strip() #remove space
+
+    if not raw or raw[0] == "#":
+        return None
+    elif raw[0] == "!":
+        return (raw[1:], False)
+    elif raw[0] == "\\":
+        return (raw[1:], True)
+    else:
+        return (raw, True)
+
+def gitignore_parse(lines):
+    ret = list() #rules list
+
+    for line in lines:
+        parsed = gitignore_parse1(line)
+        if parsed:
+            ret.append(parsed)
+
+    return ret
+
+class GitIgnore(object):
+    absolute = None
+    scoped = None
+
+    def __init__(self, absolute, scoped):
+        self.absolute = absolute
+        self.scoped = scoped
+
+def gitignore_read(repo):
+    ret = GitIgnore(absolute=list(), scoped=dict())
+
+    #read local configuration: .git/info/exclude
+    repo_file = os.path.join(repo.gitfir, "info/exclude")
+    if os.path.exists(repo_file):
+        with open(repo_file, "r") as f:
+            ret.absolute.append(gitignore_parse(f.readlines()))
+    
+    #global configuration
+    if "XDG_CONFIG_HOME" in os.environ:
+        config_home = os.environ["XDG_CONFIG_HOME"]
+    else:
+        config_home = os.path.expanduser("~/.config")
+    global_file = os.path.join(config_home,"git/ignore")
+
+    if os.path.exists(global_file):
+        with open(global_file, "r") as f:
+            ret.absolute.append(gitignore_parse(f.readlines()))
+    
+    # .gitignore files in the index
+    index = index_read(repo)
+    for entry in index.entries:
+        if entry.name == ".gitignore" or entry.name.endswitch("/.gitignore"):
+            dir_name = os.path.dirname(entry.name)
+            contents = object_read(repo, entry.sha)
+            lines = contents.blobdata.decode("utf8").splitlines()
+            ret.scoped[dir_name] = gitignore_parse(lines)
+    return ret
+
+#function check match with rules
+def check_ignore1(rules, path):
+    result = None # nothing matched
+    for(pattern, value) in rules:
+        if fnmatch(path, pattern):
+            result = value
+    return result #true or false
+
+def check_ignore_scoped(rules, path):
+    #Check ignore rules in parent directories
+    parent = os.path.dirname(path)
+    while True:
+        if parent in rules:
+            result = check_ignore1(rules[parent], path)
+            if result != None:
+                return result
+        if parent == "":
+            break
+        parent = os.path.dirname(parent)
+    return None
+
+def check_ignore_absolute(rules, path):
+    #Check ignore rules in absolute paths
+    parent = os.path.dirname(path)
+    for ruleset in rules:
+        result = check_ignore1(ruleset, path)
+        if result != None:
+            return result
+    return False # This is a reasonable default at this point.
+
+def check_ignore(rules, path):
+    #Check if a given path is ignored based on the provided ignore rules
+    if os.path.isabs(path):
+        raise Exception("This function requires path to be relative to the repository's root")
+
+    result = check_ignore_scoped(rules.scoped, path)
+    if result != None:
+        return result
+
+    return check_ignore_absolute(rules.absolute, path)
+
 def cmd_rev_parse(args):
     """Bridge function to parse a revision."""
     fmt = args.type.encode() if args.type else None
@@ -829,3 +942,4 @@ def cmd_ls_tree(args):
     """Bridge function to list the contents of a tree object."""
     repo = repo_find()
     ls_tree(repo, args.tree, args.recursive)
+
